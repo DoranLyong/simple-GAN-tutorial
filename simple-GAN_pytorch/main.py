@@ -102,7 +102,7 @@ def main(cfg: DictConfig):
     )
 
 
-    dataset = datasets.MNIST(root="./dataset/", transform=transforms, download=True)                                    
+    dataset = datasets.MNIST(root="./dataset/", transform=transforms, download=True) # HTTP Error 503: (ref) https://stackoverflow.com/questions/66646604/http-error-503-service-unavailable-when-trying-to-download-mnist-data
     
 
 
