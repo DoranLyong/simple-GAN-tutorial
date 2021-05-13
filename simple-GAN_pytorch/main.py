@@ -61,7 +61,7 @@ torch.cuda.manual_seed_all(SEED) # for multi-gpu
 
 #%%
 
-def train_fn(loader, disc, gen, opt_disc, opt_gen, loss_fn, scaler, DEVICE, BATCH_SIZE, NUM_EPOCHS, cur_epoch):
+def train_fn(loader, disc, gen, opt_disc, opt_gen, loss_fn, scaler, DEVICE, hyperparams, cur_epoch):
 
     # (ref) https://github.com/DoranLyong/DeepLearning-model-factory/blob/master/ML_tutorial/PyTorch/Basics/lr_scheduler_tutorial.py
     loop = tqdm(enumerate(loader), total=len(loader)) 
@@ -69,6 +69,13 @@ def train_fn(loader, disc, gen, opt_disc, opt_gen, loss_fn, scaler, DEVICE, BATC
     for batch_idx, (real, _) in loop: # 미니배치 별로 iteration 
 
         real = real.view(-1, 784).to(DEVICE)  # MNIST image; 28x28 = 784
+        batch_size = real.shape[0]  
+
+        
+        """ Train Discriminator: max log(D(x)) + log(1 - D(G(z)))
+        """
+        noise = torch.randn(batch_size, hyperparams.Z_DIM).to(DEVICE)
+        
 
 
     
@@ -158,8 +165,7 @@ def main(cfg: DictConfig):
         train_fn(loader, disc, gen, 
                     opt_disc, opt_gen, loss_fn, 
                     scaler, DEVICE, 
-                    cfg.hyperparams.BATCH_SIZE, 
-                    cfg.hyperparams.NUM_EPOCHS, 
+                    cfg.hyperparams, 
                     epoch
                 )        
 
