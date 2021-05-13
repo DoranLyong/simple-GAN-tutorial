@@ -21,8 +21,7 @@ import torch.optim as optim # 최적화 알고리즘을 담은 패키지 ; # For
 import torchvision
 import torchvision.datasets as datasets
 from torch.utils.data import DataLoader
-import albumentations as A 
-from albumentations.pytorch import ToTensorV2
+import torchvision.transforms as transforms
 from torch.utils.tensorboard import SummaryWriter  # to print to tensorboard
 
 
@@ -67,12 +66,12 @@ def train_fn(loader, disc, gen, opt_disc, opt_gen, loss_fn, scaler, DEVICE, BATC
     # (ref) https://github.com/DoranLyong/DeepLearning-model-factory/blob/master/ML_tutorial/PyTorch/Basics/lr_scheduler_tutorial.py
     loop = tqdm(enumerate(loader), total=len(loader)) 
 
-    for batch_idx, (real, _) in enumerate(loader): # 미니배치 별로 iteration 
-        print(batch_idx)
-#        real = real.view(-1, 784).to(DEVICE)  # MNIST image; 28x28 = 784
+    for batch_idx, (real, _) in loop: # 미니배치 별로 iteration 
+
+        real = real.view(-1, 784).to(DEVICE)  # MNIST image; 28x28 = 784
 
 
-
+    
 
 
 
@@ -94,18 +93,16 @@ def main(cfg: DictConfig):
     """    
     latent_noise  = torch.randn((cfg.hyperparams.BATCH_SIZE, cfg.hyperparams.Z_DIM)).to(DEVICE)  # fixed noise ; shape := [batch_size, z_dim]
 
-    transforms = A.Compose(
+    transform  = transforms.Compose(
         [
-            A.Normalize(
-                mean=[0.5, ],
-                std=[0.5, ],
-            ),
-            ToTensorV2(), # Albumentations to torch.Tensor
+            transforms.ToTensor(), # 순서가 중요함 (이게 먼저 와야함); (ref) https://discuss.pytorch.org/t/typeerror-img-should-be-pil-image-got-class-torch-tensor/85834
+            transforms.Normalize( mean=[0.5, ], std=[0.5, ], ),
+            
         ],
         )
 
 
-    dataset = datasets.MNIST(root=osp.join(cwd, 'dataset'), transform=transforms, download=True)    # HTTP Error 503: (ref) https://stackoverflow.com/questions/66646604/http-error-503-service-unavailable-when-trying-to-download-mnist-data
+    dataset = datasets.MNIST(root=osp.join(cwd, 'dataset'), transform=transform, download=True)    # HTTP Error 503: (ref) https://stackoverflow.com/questions/66646604/http-error-503-service-unavailable-when-trying-to-download-mnist-data
                                                                                         # (ref) https://bbdata.tistory.com/8
                                                                                         # (ref) https://pytorch.org/vision/stable/datasets.html#torchvision.datasets.MNIST
     loader = DataLoader(dataset, batch_size= cfg.hyperparams.BATCH_SIZE, shuffle=True)
@@ -142,7 +139,6 @@ def main(cfg: DictConfig):
     opt_gen = optim.Adam(gen.parameters(), lr=cfg.hyperparams.LEARNING_RATE)
 
     loss_fn = nn.BCELoss()
-
 
 
 
