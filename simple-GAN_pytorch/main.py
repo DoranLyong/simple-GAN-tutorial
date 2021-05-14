@@ -75,6 +75,7 @@ def train_fn(loader, disc, gen, opt_disc, opt_gen, loss_fn, scaler, DEVICE, hype
         """ Train Discriminator: max log(D(x)) + log(1 - D(G(z)))
         """
         noise = torch.randn(batch_size, hyperparams.Z_DIM).to(DEVICE)
+        fake = gen(noise)
         
 
 
