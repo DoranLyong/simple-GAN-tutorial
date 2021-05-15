@@ -28,7 +28,7 @@ from torch.utils.tensorboard import SummaryWriter  # to print to tensorboard
 from models import ( Generator, 
                     Discriminator
                     )
-from utils import get_loaders                    
+                  
 
 
 
@@ -57,35 +57,7 @@ torch.cuda.manual_seed_all(SEED) # for multi-gpu
 
 
 
-
-
-#%%
-
-def train_fn(loader, disc, gen, opt_disc, opt_gen, loss_fn, scaler, DEVICE, hyperparams, cur_epoch):
-
-    # (ref) https://github.com/DoranLyong/DeepLearning-model-factory/blob/master/ML_tutorial/PyTorch/Basics/lr_scheduler_tutorial.py
-    loop = tqdm(enumerate(loader), total=len(loader)) 
-
-    for batch_idx, (real, _) in loop: # 미니배치 별로 iteration 
-
-        real = real.view(-1, 784).to(DEVICE)  # MNIST image; 28x28 = 784
-        batch_size = real.shape[0]  
-
-        
-        """ Train Discriminator: max log(D(x)) + log(1 - D(G(z)))
-        """
-        noise = torch.randn(batch_size, hyperparams.Z_DIM).to(DEVICE)
-        fake = gen(noise)
-        
-
-
-    
-
-
-
-
 #%% 
-
 @hydra.main(config_name='./cfg.yaml')
 
 def main(cfg: DictConfig):
@@ -104,7 +76,7 @@ def main(cfg: DictConfig):
     transform  = transforms.Compose(
         [
             transforms.ToTensor(), # 순서가 중요함 (이게 먼저 와야함); (ref) https://discuss.pytorch.org/t/typeerror-img-should-be-pil-image-got-class-torch-tensor/85834
-            transforms.Normalize( mean=[0.5, ], std=[0.5, ], ),
+            transforms.Normalize( mean=[0.5, ], std=[0.5, ], ), # 1-channel MNIST dataset
             
         ],
         )
@@ -136,6 +108,8 @@ def main(cfg: DictConfig):
 
     """ Gradient Scaling
         (ref) https://pytorch.org/docs/stable/amp.html#gradient-scaling
+        (ref) https://runebook.dev/ko/docs/pytorch/amp#torch.cuda.amp.GradScaler
+        (ref) https://hoya012.github.io/blog/Image-Classification-with-Mixed-Precision-Training-PyTorch-Tutorial/
     """        
     scaler = torch.cuda.amp.GradScaler()      
 
@@ -146,29 +120,99 @@ def main(cfg: DictConfig):
     opt_disc = optim.Adam(disc.parameters(), lr=cfg.hyperparams.LEARNING_RATE )
     opt_gen = optim.Adam(gen.parameters(), lr=cfg.hyperparams.LEARNING_RATE)
 
-    loss_fn = nn.BCELoss()
-
+    loss_fn = nn.BCELoss() # (ref) https://youtu.be/OljTVUVzPpM?t=772
+#    loss_fn = nn.BCEWithLogitsLoss()   # torch.cuda.amp.autocast()를 사용하기 위해서(ref) https://discuss.pytorch.org/t/bceloss-are-unsafe-to-autocast/110407/2
+                                        # 하지만, 이것 때문에 학습이 수렴이 안 돼서 torch.cuda.amp.autocast() 버림 
+                                        # 그래서 다시 nn.BCELoss() 사용 
 
 
     """ Tensorboard 
+        (ref) https://youtu.be/RLqsxWaQdHE
     """
-    writer_fake = SummaryWriter(f"logs/fake")
-    writer_real = SummaryWriter(f"logs/real")
-    step = 0    
+    writer_fake = SummaryWriter(osp.join(cwd, 'logs', 'fake')) # (ref) https://pytorch.org/docs/stable/tensorboard.html
+    writer_real = SummaryWriter(osp.join(cwd, 'logs', 'real'))
 
+
+    step = 0 
 
 
     """ Start the training-loop
     """
     for epoch in range(cfg.hyperparams.NUM_EPOCHS):
 
+        # (ref) https://github.com/DoranLyong/DeepLearning-model-factory/blob/master/ML_tutorial/PyTorch/Basics/lr_scheduler_tutorial.py
+        loop = tqdm(enumerate(loader), total=len(loader)) 
+        
         # Run training 
-        train_fn(loader, disc, gen, 
-                    opt_disc, opt_gen, loss_fn, 
-                    scaler, DEVICE, 
-                    cfg.hyperparams, 
-                    epoch
-                )        
+        for batch_idx, (real, _) in loop: # 미니배치 별로 iteration 
+
+            real = real.view(-1, 784).to(DEVICE)  # MNIST image; 28x28 = 784
+            batch_size = real.shape[0]  
+
+
+            """ Train Discriminator: max log(D(x)) + log(1 - D(G(z)))
+            """
+            noise = torch.randn(batch_size, cfg.hyperparams.Z_DIM).to(DEVICE)
+
+
+            # Forward 
+            fake = gen(noise) # generated fake data 
+
+            disc_real = disc(real).view(-1) # features of the real out of discriminator
+            lossD_real = loss_fn(disc_real, torch.ones_like(disc_real))
+            disc_fake = disc(fake).view(-1) # features of the fake out of discriminator
+            lossD_fake = loss_fn(disc_fake, torch.zeros_like(disc_fake)) # loss function에서 discriminator를 속이는 부분 (ref) https://youtu.be/OljTVUVzPpM?t=887
+            lossD = (lossD_real + lossD_fake) / 2  # 두 손실량의 1:1 내분점 
+
+
+            # Backward 
+            disc.zero_grad()   # AutoGrad 하기 전에(=역전파 실행전에) 매번 mini batch 별로 기울기 수치를 0으로 초기화
+            scaler.scale(lossD).backward(retain_graph=True)     # (ref) https://tutorials.pytorch.kr/beginner/pytorch_with_examples.html
+                                                                # .backward(retain_graph=True) 계산 그래프의 연산 히스토리 기록 (ref) https://tutorials.pytorch.kr/beginner/former_torchies/autograd_tutorial_old.html
+                                                                # 이걸 왜 하냐? (ref) https://youtu.be/OljTVUVzPpM?t=1026
+            scaler.step(opt_disc)  # gradient descent or adam step
+            scaler.update()         # weight update 
+
+
+
+
+            """ Train Generator: min log(1 - D(G(z))) <-> max log(D(G(z))
+                , where the second option of maximizing doesn't suffer from saturating gradients
+            """
+            # Forward 
+            output = disc(fake).view(-1) # features of the real out of discriminator
+            lossG = loss_fn(output, torch.ones_like(output))
+
+            # Backward 
+            gen.zero_grad()
+            scaler.scale(lossG).backward()
+            scaler.step(opt_gen)
+            scaler.update() 
+
+
+
+            """ Progress bar with tqdm
+                (ref) https://github.com/DoranLyong/VGG-tutorial/blob/main/VGG_pytorch/VGG_for_CIFAR10.py
+            """
+            if batch_idx == 0:
+                """ 매 iteration 마다 보여주지 않고 
+                    epoch 당 첫 iteration의 결과만 보자 (그냥 심플하게).
+                """
+                loop.set_description(f"Epoch [{epoch}/{cfg.hyperparams.NUM_EPOCHS}], Loss D: {lossD:.4f}, loss G: {lossG:.4f}")
+
+                with torch.no_grad():
+                    fake = gen(latent_noise).reshape(-1, 1, 28, 28)
+                    data = real.reshape(-1, 1, 28, 28)
+
+                    img_grid_fake = torchvision.utils.make_grid(fake, normalize=True)
+                    img_grid_real = torchvision.utils.make_grid(data, normalize=True)
+
+                    # Write into Tensorboard
+                    writer_fake.add_image( "Mnist Fake Images", img_grid_fake, global_step= step  )
+                    writer_real.add_image( "Mnist Real Images", img_grid_real, global_step= step  )
+
+                    step += 1
+
 
 
 

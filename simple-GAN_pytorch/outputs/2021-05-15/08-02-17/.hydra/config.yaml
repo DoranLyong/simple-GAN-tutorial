@@ -1,0 +1,12 @@
+default:
+  NUM_WORKERS: 2
+  DEVICE:
+    CUDA: true
+  PIN_MEMORY: true
+  LOAD_MODEL: false
+hyperparams:
+  LEARNING_RATE: 0.0003
+  BATCH_SIZE: 32
+  NUM_EPOCHS: 500
+  IMAGE_DIM: 784
+  Z_DIM: 128

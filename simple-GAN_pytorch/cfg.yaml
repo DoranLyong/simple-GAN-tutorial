@@ -10,6 +10,6 @@ default:
 hyperparams:
   LEARNING_RATE : 3e-4   # 3e-4 is the best lr for Adam (ref) https://youtu.be/OljTVUVzPpM?t=306
   BATCH_SIZE : 32
-  NUM_EPOCHS : 50
+  NUM_EPOCHS : 500
   IMAGE_DIM : 784 # MNIST; 28 * 28 * 1 
-  Z_DIM : 64 # dim of latent noise ; 128, 256 ... 
+  Z_DIM : 64 # dim of latent noise ; 64, 128, 256 ... 
